@@ -1,0 +1,121 @@
+#cloud-config
+# Init script for teamspeak3 server installation.
+# Created from
+# https://www.digitalocean.com/community/questions/setup-teamspeak-server-ubuntu-15-04
+# and http://cloudinit.readthedocs.io/en/latest/topics/examples.html, in the
+# end it's mostly a file writing and a manual script execution, but it works
+# sooo ¯\_(ツ)_/¯.
+# 1. Change the PASSWORD value below.
+# 2. Once logged in, run the script below and remember the sql root password.
+
+# Add the user
+users:
+  - name: teamspeak3-user
+    homedir: /opt/teamspeak3-server
+
+# Write all the files
+write_files:
+
+  # The teamspeak server config
+  - content: |
+      machine_id=
+      default_voice_port=9987
+      voice_ip=0.0.0.0
+      licensepath=
+      filetransfer_port=30033
+      filetransfer_ip=0.0.0.0
+      query_port=10011
+      query_ip=0.0.0.0
+      query_ip_whitelist=query_ip_whitelist.txt
+      query_ip_blacklist=query_ip_blacklist.txt
+      dbsqlpath=sql/
+      dbplugin=ts3db_mariadb
+      dbsqlcreatepath=create_mariadb/
+      dbpluginparameter=ts3db_mariadb.ini
+      dbconnections=10
+      logpath=logs
+      logquerycommands=0
+      dbclientkeepdays=30
+      logappend=0
+      query_skipbruteforcecheck=0
+    path: /opt/teamspeak3-server/ts3server.ini
+
+  # Whitelist localhost
+  - content: |
+      127.0.0.1
+    path: /opt/teamspeak3-server/query_ip_whitelist.txt
+
+  # Don't blacklist anything
+  - content: ''
+    path: /opt/teamspeak3-server/query_ip_blacklist.txt
+
+  # Link teamspeak to mariadb
+  - content: |
+      [config]
+      host=127.0.0.1
+      port=3306
+      username=teamspeak3
+      password=PASSWORD
+      database=teamspeak3
+      socket=
+    path: /opt/teamspeak3-server/ts3db_mariadb.ini
+
+  # init.d script to start teamspeak
+  - content: |
+      #! /bin/sh
+      ### BEGIN INIT INFO
+      # Provides:          ts3
+      # Required-Start:    $network mysql
+      # Required-Stop:     $network
+      # Default-Start:     2 3 4 5
+      # Default-Stop:      0 1 6
+      # Short-Description: TeamSpeak3 Server Daemon
+      # Description:       Starts/Stops/Restarts the TeamSpeak Server Daemon
+      ### END INIT INFO
+
+      set -e
+
+      PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+      DESC="TeamSpeak3 Server"
+      NAME=teamspeak3-server
+      USER=teamspeak3-user
+      DIR=/opt/teamspeak3-server
+      OPTIONS=inifile=ts3server.ini
+      DAEMON=$DIR/ts3server_startscript.sh
+      #PIDFILE=/var/run/$NAME.pid
+      SCRIPTNAME=/etc/init.d/$NAME
+
+      # Gracefully exit if the package has been removed.
+      test -x $DAEMON || exit 0
+
+      sleep 2
+      sudo -u $USER $DAEMON $1 $OPTIONS
+    path: /etc/init.d/ts3
+    permissions: '0755'
+
+  # SQL command to add the teamspeak user and db.
+  - content: |
+      create database teamspeak3;
+      GRANT ALL PRIVILEGES ON teamspeak3.* TO teamspeak3@localhost IDENTIFIED BY 'PASSWORD';
+      flush privileges;
+      quit
+    path: /opt/teamspeak3-server/install.sql
+
+  # Main install script, to be run once logged in.
+  - content: |
+      sudo apt-get install -y mariadb-client mariadb-server libmariadb2
+      /usr/bin/mysql_secure_installation
+      sudo mysql -u root -p < /opt/teamspeak3-server/install.sql
+      sudo wget http://dl.4players.de/ts/releases/3.0.11.4/teamspeak3-server_linux-amd64-3.0.11.4.tar.gz
+      sudo tar -zxvf teamspeak3-server_linux-amd64-3.0.11.4.tar.gz
+      sudo mv teamspeak3-server_linux-amd64/* /opt/teamspeak3-server
+      sudo chown teamspeak3-user:teamspeak3-user /opt/teamspeak3-server -R
+      sudo rm -fr teamspeak3-server_linux-amd64-3.0.11.4.tar.gz teamspeak3-server_linux-amd64
+      sudo ln -s /opt/teamspeak3-server/redist/libmariadb.so.2 /opt/teamspeak3-server/libmariadb.so.2
+      sudo chmod a+x /etc/init.d/ts3
+      sudo chmod a+x /opt/teamspeak3-server/ts3server_startscript.sh
+      sudo chmod a+x /opt/teamspeak3-server/ts3server_minimal_runscript.sh
+      sudo update-rc.d ts3 defaults
+      echo 'now run /etc/init.d/ts3 start'
+    path: /opt/teamspeak3-server/install.sh
+    permissions: '0755'
