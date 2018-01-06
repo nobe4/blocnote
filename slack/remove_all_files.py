@@ -8,7 +8,7 @@ while moreFiles:
     response = requests.get("https://slack.com/api/files.list", params={"token":token})
 
     data = json.loads(response.content)
-    moreFiles = int(data['paging']['count']) > 0
+    moreFiles = int(data['paging']['total']) > 0
     print data['paging']
 
     for file in data["files"]:
